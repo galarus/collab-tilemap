@@ -1,1 +1,1 @@
-gcc -o hello hello.c -lraylib -lczmq -lGL -lm -lpthread -ldl -lrt -lX11
+gcc -o client client.c -lraylib  -lczmq -lGL -lm -lpthread -ldl -lrt -lX11

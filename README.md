@@ -13,6 +13,7 @@ unsure if intermittent sleep finction is sufficient to test this.
 - when simulating latency, your own edits will arrive slowly
 and will show you the last few edits you have done.
 This doesnt appear to make the state wrong if you wait for it to catch up, but is awkward. 
+- too many printf, no logging flags
 
 # ToDo
 - prevent editing outside of bounds
@@ -47,5 +48,6 @@ redis 2d list granular update
 zeromq pub sub
 
 why zeromq pub sub over redis pub sub
+automatic message queuing among other features
 
 no malloc? lets make it use malloc
