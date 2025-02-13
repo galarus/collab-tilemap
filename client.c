@@ -30,6 +30,7 @@ int columns = init_columns;
 const int boardWidth = tileSize * init_rows;
 const int boardX = screenWidth / 2 - boardWidth / 2;
 const int boardY = screenHeight / 2 - boardWidth / 2;
+
 typedef struct Tile {
   int colorInt; // from 0 to 4 inclusive. could this be an enum?
   Rectangle rect;
@@ -104,8 +105,8 @@ void parseBoardCSV(char* boardCSV){
     dataToken = strtok(line, ",");
     int dataIdx = 0;
     int colorNum = 0;
-    int x;
-    int y;
+    int x = 0;
+    int y = 0;
     while (dataToken != NULL){
       switch(dataIdx){
         case 0: // x value
@@ -175,9 +176,9 @@ void * updateSubThread(void * arg){
 
     char *token;
     token = strtok(sub_buffer, ",");
-    int x;
-    int y;
-    int colorNum;
+    int x = 0;
+    int y = 0;
+    int colorNum = 0;
     int i = 0;
     while (token != NULL) {
       if (i == 0) {
@@ -208,18 +209,46 @@ void * updateSubThread(void * arg){
 }
 
 void reallocBoard(int newCols, int newRows){
-  board = (Tile**)realloc(board, newCols * sizeof(Tile*));
-  for (int i = 0; i < newCols; i++){
-    if (i >= columns){
-      // allocate mem for new rows in each column
-      board[i] = (Tile*)malloc(newRows * sizeof(Tile));
+  printf("calling realloc\n");
+  board = (Tile**)realloc(board, newRows * sizeof(Tile*));
+  if (board == NULL){
+    fprintf(stderr, "mem allocation failed for board columns\n");
+  }
+  // initialze new tiles with default data
+  
+  for (int i = 0; i < newRows; i++){
+    if (i >= rows){
+     // allocate mem for new rows in each column
+      board[i] = (Tile*)malloc(newCols * sizeof(Tile));
+      if (board[i] == NULL) {
+        fprintf(stderr, "mem allocation failed new new board rows \n");
+      }
+      // initialize new tiles with default data
+      for (int j = 0; j < newCols; j++){
+        Tile * newTile = &board[i][j];
+        newTile->colorInt = 0;
+        newTile->rect.width = tileSize;
+        newTile->rect.height = tileSize;
+        newTile->rect.x = boardX + j * tileSize;
+        newTile->rect.y = boardY + i * tileSize;
+      }
     } else {
       // resize existing rows
-      board[i] = (Tile*)realloc(board[i], newRows * sizeof(Tile));
+      board[i] = (Tile*)realloc(board[i], newCols * sizeof(Tile));
+      if (board[i] == NULL){
+        fprintf(stderr, "mem allocation failed for old rows\n");
+      }
+      // initialize new tiles with default values
+      for (int j = columns; j < newCols; j++) {
+        Tile *newTile = &board[i][j];
+        newTile->colorInt = 0;
+        newTile->rect.width = tileSize;
+        newTile->rect.height = tileSize;
+        newTile->rect.x = boardX + j * tileSize;
+        newTile->rect.y = boardY + i * tileSize;
+      }
     }
   }
-  rows = newRows;
-  columns = newCols;
 }
   
 int main(void) {
@@ -254,7 +283,6 @@ int main(void) {
   int selectedColorInt = 4;
 
   // button for fetching whole state
-  Rectangle fetchRec;
 
   leftBoundary.x = 0;
   leftBoundary.y = 0;
@@ -272,11 +300,6 @@ int main(void) {
   rightBoundary.y = 0;
   rightBoundary.width = screenWidth; // lazy width calc
   rightBoundary.height = screenHeight;
-
-  fetchRec.x = 20;
-  fetchRec.y = 500;
-  fetchRec.width = 100;
-  fetchRec.height = 80;
 
   // init selection tile rectangles
   Tile selectionTiles[5];
@@ -364,8 +387,8 @@ int main(void) {
               tile->colorInt = selectedColorInt;
               printf("painting %d, %d as %d\n", j, i, selectedColorInt);
               setLastPainted(j, i, selectedColorInt);
-              char commandBuffer[10];
-              sprintf(commandBuffer, "%d,%d,%d", j, i, selectedColorInt);
+              char commandBuffer[32];
+              snprintf(commandBuffer, sizeof(commandBuffer), "%d,%d,%d", j, i, selectedColorInt);
               printf("%s\n", commandBuffer);
 
               pthread_t update_thread_id;
@@ -421,8 +444,10 @@ int main(void) {
         if (isValid) {
           printf("trigger update width %d\n", isValid);
           int widthInputNum = atoi(widthInputText);
-
-          reallocBoard(widthInputNum, rows);
+          if (widthInputNum > columns){
+            reallocBoard(widthInputNum, rows);
+          }
+          columns = widthInputNum;
         } else {
           snprintf(widthInputText, sizeof(widthInputText), "%d", columns);
         }
@@ -437,7 +462,10 @@ int main(void) {
         if (isValid) {
           printf("trigger update height %d\n", isValid);
           int heightInputNum = atoi(heightInputText);
-          reallocBoard(columns, heightInputNum);
+          if (heightInputNum > rows){
+            reallocBoard(columns, heightInputNum);
+          }
+          rows = heightInputNum;
         } else {
           snprintf(heightInputText, sizeof(heightInputText), "%d", rows);
         }

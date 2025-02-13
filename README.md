@@ -1,26 +1,9 @@
 # Known Issues
 
-- mixture between camelCase and snake_case
-- too many global variables
 - lack of code separation via separate files
-- more comments and more consistent comment style
-- lack of Makefile
-could possibly help with compiling to different platforms
 - not enough testing for latency, disconnects, and potential editing conflicts
-doubtful zeromq fixes all of this out of the box
-unsure if intermittent sleep finction is sufficient to test this.
+- - doubtful zeromq fixes all of this out of the box
 - usage of czmq library potentially hiding some of the workings of zeromq
-- when simulating latency, your own edits will arrive slowly
-and will show you the last few edits you have done.
-This doesnt appear to make the state wrong if you wait for it to catch up, but is awkward. 
-- too many printf, no logging flags
-
-# ToDo
-- prevent editing outside of bounds
-- enable growing and shrinking from 1 to 99 height and width in order to use malloc in the project
-- study zeromq pubsub patterns
-
-(on a separate note, do more leetcode using C only)
 
 # Dev Blog
 
@@ -51,3 +34,4 @@ why zeromq pub sub over redis pub sub
 automatic message queuing among other features
 
 no malloc? lets make it use malloc
+first attempt: seg fault!
