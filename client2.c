@@ -58,9 +58,12 @@ typedef struct
 
 typedef struct
 {
+    // board width
     int columns;
+    // board height
     int rows;
-    Tile tiles[INIT_ROWS][INIT_COLUMNS];
+    // 2d array of tiles
+    Tile** tiles;
 } TileBoard;
 
 // initTileRectangle
@@ -112,13 +115,64 @@ void initTileBoard(TileBoard *board)
 {
     board->columns = INIT_COLUMNS;
     board->rows = INIT_ROWS;
+    // allocate memory for 2d array of tiles
+    board->tiles = (Tile**)malloc(INIT_ROWS * sizeof(Tile*));
+    //for (int i = 0; i < INIT)
+    // allocate memory and initialize values
     for (int i = 0; i < INIT_ROWS; i++)
     {
+        board->tiles[i] = (Tile*)malloc(INIT_COLUMNS * sizeof(Tile)); 
         for (int j = 0; j < INIT_COLUMNS; j++)
         {
             Tile *board_tile = getBoardTile(board, i, j); // &board->tiles[i][j];
             board_tile->color_num = BLACK_NUM;
             initTileRectangle(&board_tile->rect, i, j);
+        }
+    }
+}
+
+// resizeBoardWidth
+// take a new width and reallocate memory for it
+// initialize new values if new width is bigger than old width
+// updating board[][COLUMNS]
+void resizeBoardWidth(TileBoard* board, int new_width) {
+    int old_width = board->columns;
+    board->columns = new_width;
+
+    // resize every row to new width 
+    for (int i = 0; i < board->rows; i++){
+        board->tiles[i] = (Tile*)realloc(board->tiles[i], new_width * sizeof(Tile));
+        // initialize data for new columns
+        for (int j = old_width; j < new_width; j++){
+            Tile* tile = getBoardTile(board, i, j);
+            tile->color_num = BLACK_NUM;
+            initTileRectangle(&tile->rect, i, j);
+        }
+    }
+}
+
+// resizeBoardHeight
+// take a new height and reallocate memory for it
+// initialize new values if new height is bigger than old height
+// pudating board[ROWS][]
+void resizeBoardHeight(TileBoard* board, int new_height) {
+    int old_rows = board->rows;
+    board->rows = new_height;
+    // init memory for new rows
+    Tile** temp_realloc = (Tile**)realloc(board->tiles, new_height * sizeof(Tile*));
+    if (temp_realloc == NULL) {
+        fprintf(stderr, "error realloc height/rows\n");
+        exit(1);
+    }
+    board->tiles = temp_realloc;
+
+    // initialize data for new rows
+    for (int i = old_rows; i < new_height; i++){
+        board->tiles[i] = (Tile*)malloc(board->columns * sizeof(Tile));
+        for (int j = 0; j < board->columns; j++){
+            Tile * tile = getBoardTile(board, i, j); // &board->tiles[i][j];
+            tile->color_num = BLACK_NUM;
+            initTileRectangle(&tile->rect, i, j);
         }
     }
 }
@@ -179,30 +233,7 @@ bool checkInBoundary()
     }
     return true;
 }
-/*
-// store last painted tile
-Vector2 last_coord = {
-    .x = -1,
-    .y = -1
-};
-// store last painted color
-ColorIndex last_color;
 
-// setLastPainted - update last_coord and last_color to what was painted
-void setLastPainted(int x, int y, int colorNum){
-  last_coord.x = x;
-  last_coord.y = y;
-  last_color = colorNum;
-}
-
-// isLastPainted - return true if we just painted this location with this color, else return false
-bool isLastPainted(int x, int y, ColorIndex color_num) {
-  if (x == last_coord.x && y == last_coord.y && color_num == last_color){
-    return true;
-  }
-  return false;
-}
-*/
 // UTILITY FUNCTIONS
 // ----------------
 
@@ -351,10 +382,7 @@ int main(void)
                 {
                     printf("trigger update width %d\n", isValid);
                     int width_input_num = atoi(width_input_text);
-                    if (width_input_num > board.columns)
-                    {
-                       // reallocBoard(widthInputNum, rows);
-                    }
+                    resizeBoardWidth(&board, width_input_num);
                     board.columns = width_input_num;
                 }
                 else
@@ -375,11 +403,7 @@ int main(void)
                 {
                     printf("trigger update height %d\n", isValid);
                     int height_input_num = atoi(height_input_text);
-                    if (height_input_num > board.rows)
-                    {
-                        //reallocBoard(board.columns, height_input_num);
-                    }
-                    board.rows = height_input_num;
+                    resizeBoardHeight(&board, height_input_num);
                 }
                 else
                 {
