@@ -4,7 +4,9 @@
     https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux
 2. on debian/ubuntu, make sure `build-essential uuid-dev libczmq-dev` is installed
 3. run the build.sh script for the client, and then cd to server directory and run buil.sh there
-4. run server, then run several clients 
+4. run server, then run several clients to see them sync with each other.
+
+You may control the camera with arrow keys and scroll to zoom.
 
 # Potential/Known Issues
 

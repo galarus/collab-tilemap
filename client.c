@@ -338,12 +338,7 @@ void parseBoardCSV(TileBoard *board, char *boardCSV)
     token = strtok_r(rest_dimensions, ",", &rest_dimensions);
     server_columns = atoi(token);
     printf("token %s\n", token);
-    //  if (dimensions_token == NULL)
-    //{
-    //    fprintf(stderr, "failed to parse board dimensions from fetch\n");
-    //    exit(1);
-    //}
-    // server_rows = atoi(dimensions_token);
+
 
     // check if different and resize actually!
     if (server_rows != board->rows)
@@ -358,12 +353,6 @@ void parseBoardCSV(TileBoard *board, char *boardCSV)
     }
     // -----
 
-    // line_token = strtok(boardCSV, "\n");
-
-    // printf("line token: %s\n", line_token);
-    // line_token = strtok(NULL, "\n");
-    //  printf("%s\n", boardCSV);
-    // line_token = strtok(NULL, "\n");
     token = strtok_r(rest_board, "\n", &rest_board);
     char *lines[server_columns * server_rows];
     int lineIdx = 0;
@@ -415,6 +404,8 @@ void parseBoardCSV(TileBoard *board, char *boardCSV)
     // free(dimensions_str);
 }
 
+// sendReq 
+// takes a req_str and sends it on the zeromq request socket and returns the response
 char *sendReq(char *req_str)
 {
     printf("sending command %s \n", req_str);
@@ -423,6 +414,9 @@ char *sendReq(char *req_str)
     char *str = zstr_recv(requester);
     return str;
 }
+
+// sendFetchReq
+// uses sendReq with a "fetch" string and updates the entire Board state
 void sendFetchReq(TileBoard *board)
 {
     char *result = sendReq("fetch");
@@ -430,6 +424,9 @@ void sendFetchReq(TileBoard *board)
     printf("%s\n",result);
     zstr_free(&result);
 }
+
+// sendResizeReq 
+// takes integer values for the new rows and columns and calls sendReq with a string to trigger a resize on the server
 void sendResizeReq(int new_rows, int new_cols)
 {
     char command_str[64];
@@ -439,6 +436,9 @@ void sendResizeReq(int new_rows, int new_cols)
     printf("%s\n", result);
     zstr_free(&result);
 }
+
+// sendUpdateReq
+// takes integers for the coordinates and color and calls sendReq with a string to triger a resize on the server
 void sendUpdateReq(int x, int y, ColorIndex color_num)
 {
     char command_str[64];
@@ -628,15 +628,6 @@ int main(void)
                             tile->color_num = selected_color_index;
                             printf("painting %d, %d as %d\n", j, i, selected_color_index);
                             sendUpdateReq(j, i, selected_color_index);
-                            // setLastPainted(j, i, selected_color_index);
-                            // char commandBuffer[32];
-                            // snprintf(commandBuffer, sizeof(commandBuffer), "%d,%d,%d", j, i, selectedColorInt);
-                            // printf("%s\n", commandBuffer);
-
-                            // pthread_t update_thread_id;
-                            // pthread_create(&update_thread_id, NULL, sendReqThread,
-                            //                &commandBuffer);
-                            //  sendReqThread(commandBuffer);
                         }
                     }
                 }
@@ -712,7 +703,6 @@ int main(void)
                 {
                     snprintf(height_input_text, sizeof(height_input_text), "%d", board.rows);
                 }
-                //    handleHeightChange
             }
         }
 

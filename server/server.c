@@ -222,23 +222,7 @@ void parseBoardUpdate(Board *board, char *received_str)
   printf("setting %d, %d to %d\n", x, y, color_num);
   Tile *tile = getBoardTile(board, y, x); // &board->tiles[y][x];
   tile->color_num = color_num;
-  // board[y][x].colorNum = colorNum;
-  //  SEND UPDATE TO DB
-  //  send whole state for now - optimize this later
 
-  // printf("setting updated board to redis\n");
-  // char *board_str = boardToCSV(board);
-  // redis_reply = redisCommand(redis_context, "SET board %s", board_str);
-  // char board_name[16];
-  // snprintf(board_name, 16, "row:%d", y);
-  // redis_reply = redisCommand(redis_context, "LSET %s %d %d", board_name, x, color_num);
-  // if (redis_reply->type == REDIS_REPLY_ERROR){
-  //   printf("error %s\n", redis_reply->str);
-  // }
-  // freeReplyObject(redis_reply);
-
-  // publish update to other subscribers
-  // zsock_send(publisher, "s", publish_str);
 }
 
 // parseBoardResize
@@ -374,81 +358,12 @@ void parseBoardCSV(Board *board, char *boardCSV)
   }
 }
 
-/*
-// getBoardState
-// retrieves the board state from redis if it exists, else initialize it with default values
-void getBoardState(Board* board){
-  //redis_reply = redisCommand(redis_context, "EXISTS board");
-
-  //redis_reply = redisCommand(redis_context, "EXISTS row:0");
-  //int board_exists = redis_reply->integer;
-  //freeReplyObject(redis_reply);
-  if (board_exists != 1){
-    // board doesn't exist. generate it.
-    for (int i = 0; i < board->rows; i++) {
-      char board_name[16];
-      snprintf(board_name, 16, "row:%d", i);
-      for (int j = 0; j < board->columns; j++) {
-        Tile *tile = getBoardTile(board, i, j);
-        tile->x = j;
-        tile->y = i;
-        int colorNum = rand() % 4;
-        tile->color_num = colorNum;
-        redis_reply = redisCommand(redis_context, "RPUSH %s %d", board_name, colorNum);
-        freeReplyObject(redis_reply);
-      }
-    }
-    // set board to redis
-    printf("setting generated board to redis\n");
-    //  char * board_str = boardToCSV(board);
-    //  redis_reply = redisCommand(redis_context, "SET board %s", board_str);
-  } else {
-    // board exists. get it from redis.
-    //  printf("Get board from redis\n");
-    //  redis_reply = redisCommand(redis_context, "GET board");
-
-    for (int i = 0; i < board->rows; i++){
-      char board_name[16];
-      snprintf(board_name, 16, "row:%d", i);
-      for (int j = 0; j < board->columns; j++){
-
-      //        redis_reply = redisCommand(redis_context, "LINDEX %s %d", board_name, j);
-      if (redis_reply->type == REDIS_REPLY_STRING){
-        Tile *rect = getBoardTile(board, i, j);
-        rect->x = j;
-        rect->y = i;
-        rect->color_num = atoi(redis_reply->str);
-      }
-      //  freeReplyObject(redis_reply);
-    }
-  }
-  // char * board_str = redis_reply->str;
-  // populate global board variable
-  //parseBoardCSV(board_str);
-}
-}
-*/
 
 int main(void)
 {
   Board board;
   initBoard(&board);
-  // Connect to Redis server
-  // redis_context = redisConnect("127.0.0.1", 6379);
-  /*
-  if (redis_context == NULL || redis_context->err) {
-    if (redis_context) {
-      printf("Connection error: %s\n", redis_context->errstr);
-      redisFree(redis_context);
-    } else {
-      printf("Connection error: can't allocate redis context\n");
-    }
-    exit(1);
-  }
-  redis_reply = redisCommand(redis_context, "PING %s", "hello world");
-  printf("Response: %s\n", redis_reply->str);
-  freeReplyObject(redis_reply);
-  */
+
   // Initialization of board
   //
   //--------------------------------------------------------------------------------------
@@ -496,16 +411,13 @@ int main(void)
         client_id\n
         c,s,v
         */
-        // parseBoardUpdate(&board, received_str);
         zstr_send(responder, "received command");
         //}
         // sleep(1);
 
-        // printf(str);
       }
       zstr_free(&received_str);
     }
-    // redisFree(redis_context);
   }
   printf("server stopped gracefully\n");
   zsock_destroy(&responder);
