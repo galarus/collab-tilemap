@@ -1,9 +1,16 @@
-# Known Issues
+# Build and Run Instructions
 
-- lack of code separation via separate files
-- not enough testing for latency, disconnects, and potential editing conflicts
+1. build the shared library for raylib following the instructions for your platform 
+    https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux
+2. on debian/ubuntu, make sure `build-essential uuid-dev libczmq-dev` is installed
+3. run the build.sh script for the client, and then cd to server directory and run buil.sh there
+4. run server, then run several clients 
+
+# Potential/Known Issues
+
+- not enough testing for latency, disconnects, and potential editing conflicts at scale
 - - doubtful zeromq fixes all of this out of the box
-- usage of czmq library potentially hiding some of the workings of zeromq
+- could use different build config for debug and release
 
 # Dev Blog
 
@@ -23,15 +30,18 @@ the goals of the project.  In the future, I may migrate to a lower level graphic
 
 began zeromq req/resp
 
-redis,
-why redis,
 big string and csv decoding
 
-redis 2d list granular update
 zeromq pub sub
 
-why zeromq pub sub over redis pub sub
-automatic message queuing among other features
+why zeromq pub sub is unique over other option?
+because automatic message queuing among other features
 
 no malloc? lets make it use malloc
+another option would be to use a pre-allocated buffer of maximum possible size (100x100)
 first attempt: seg fault!
+
+rewrite the resize realloc more carefully, works like a charm
+adding zoom and camera controls
+
+finding memory leaks
