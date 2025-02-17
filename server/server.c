@@ -6,50 +6,201 @@
 #include <zsock.h>
 #include <string.h>
 
-redisContext *redis_context;
-redisReply *redis_reply;
+// CONSTANT PROGRAM VARIABLES
+// --------------------------
 
-zsock_t * publisher;
+#define INIT_COLUMNS 32
+#define INIT_ROWS 32
 
-typedef struct Rectangle {
+//redisContext* redis_context;
+//redisReply* redis_reply;
+
+zsock_t* publisher;
+zsock_t* responder;
+
+// Tile struct that is different from client because it does not need to store the rectangle width/height
+typedef struct Tile {
   int x;
   int y;
-  int colorNum;
-} Rectangle;
+  int color_num;
+} Tile;
 
-enum { columns = 32, rows = 32 };
+// Server Board struct that is similar to the client TileBoard, but the tiles do not contain rectangles with width/height
+typedef struct {
+  int rows;
+  int columns;
+  Tile** tiles;
+} Board;
 
-Rectangle board[columns][rows];
+// getBoardTile
+// a way to access tiles from the TileBoard that checks for out of bounds issues
+Tile* getBoardTile(Board *board, int row_idx, int col_idx)
+{
+    if (row_idx > board->rows)
+    {
+        fprintf(stderr, "out of bounds access board rows\n");
+        exit(1);
+    }
+    if (col_idx > board->columns)
+    {
+        fprintf(stderr, "out of bounds access board columns\n");
+        exit(1);
+    }
+    return &board->tiles[row_idx][col_idx];
+}
 
+// initBoard
+// call to init with the default number of rows and columns before doing anything else
+void initBoard(Board* board){
+    board->columns = INIT_COLUMNS;
+    board->rows = INIT_ROWS;
+    board->tiles = (Tile**)malloc(INIT_ROWS * sizeof(Tile*));
+    if (board->tiles == NULL){
+      fprintf(stderr, "error allocating tile rows array\n");
+      exit(1);
+    }
+     // allocate memory and initialize values
+    for (int i = 0; i < INIT_ROWS; i++)
+    {
+        board->tiles[i] = (Tile*)malloc(INIT_COLUMNS * sizeof(Tile)); 
+        if (board->tiles[i] == NULL) {
+            fprintf(stderr, "error allocating tile columns array\n");
+            exit(1);
+        }
+        for (int j = 0; j < INIT_COLUMNS; j++)
+        {
+            Tile *tile = getBoardTile(board, i, j); // &board->tiles[i][j];
+            int color_num = rand() % 4;
+            tile->color_num = color_num;
+            tile->x = j;
+            tile->y = i;
+        }
+    }
+}
+
+// resizeBoardWidth
+// take a new width and reallocate memory for it
+// initialize new values if new width is bigger than old width
+// updating board[][COLUMNS]
+void resizeBoardWidth(Board* board, int new_width) {
+    int old_width = board->columns;
+    board->columns = new_width;
+
+    // resize every row to new width 
+    for (int i = 0; i < board->rows; i++){
+        board->tiles[i] = (Tile*)realloc(board->tiles[i], new_width * sizeof(Tile));
+        // initialize data for new columns
+        for (int j = old_width; j < new_width; j++){
+            Tile* tile = getBoardTile(board, i, j);
+            tile->color_num = 0;
+            tile->x = j;
+            tile->y = i;
+        }
+    }
+}
+
+// resizeBoardHeight
+// take a new height and reallocate memory for it
+// initialize new values if new height is bigger than old height
+// pudating board[ROWS][]
+void resizeBoardHeight(Board* board, int new_height) {
+    int old_rows = board->rows;
+    board->rows = new_height;
+    // init memory for new rows
+    Tile** temp_realloc = (Tile**)realloc(board->tiles, new_height * sizeof(Tile*));
+    if (temp_realloc == NULL) {
+        fprintf(stderr, "error realloc height/rows\n");
+        exit(1);
+    }
+    board->tiles = temp_realloc;
+
+    // initialize data for new rows
+    for (int i = old_rows; i < new_height; i++){
+        board->tiles[i] = (Tile*)malloc(board->columns * sizeof(Tile));
+        if (board->tiles[i] == NULL){
+            fprintf(stderr, "error allocating tile columns array \n");
+            exit(1);
+        }
+        for (int j = 0; j < board->columns; j++){
+            Tile * tile = getBoardTile(board, i, j); // &board->tiles[i][j];
+            tile->color_num = 0;
+            tile->x = j;
+            tile->y = i;
+        }
+    }
+}
+
+// variable to store the running state of the program and enable stopping it
 volatile int keep_running = 1;
-
-void handle_sigint(int sig) {
+// handleSigint - stops the program gracefully
+void handleSigint(int sig) {
   keep_running = 0;
   printf("stop running\n");
 }
 
-char* boardToCSV (Rectangle board[columns][rows]){
-  static char buffer[10*rows*columns];
+// boardToCSV
+// takes the board and converts the entire thing to a CSV in order to send the whole state to the client
+char* boardToCSV (Board* board){
+  // 10 bytes per line with rows*boards tiles + dimensions
+  char* buffer = (char*)malloc(10 * board->rows * board->columns * sizeof(char) + 10);
+  if (buffer == NULL){
+    fprintf(stderr, "error malloc boardToCSV buffer\n");
+    exit(1);
+  }
   buffer[0] = '\0';
+  // start with a line containing rows,columns
+  char temp[10];
+  sprintf(temp, "%d,%d\n", board->rows, board->columns);
+  strcat(buffer, temp);
 
-  for (int i = 0; i < columns; i++){
-    for (int j = 0; j < rows; j++){
+  for (int i = 0; i < board->columns; i++){
+    for (int j = 0; j < board->rows; j++){
       char temp[36];
-      sprintf(temp, "%d,%d,%d\n", board[j][i].x, board[j][i].y, board[j][i].colorNum);
+      sprintf(temp, "%d,%d,%d\n", board->tiles[j][i].x, board->tiles[j][i].y, board->tiles[j][i].color_num);
       strcat(buffer, temp);
     }
   }
   return buffer;
 }
 
-void parseBoardUpdate(char * received_str){
+// parseCommand
+void parseCommand(char* command_str) {
+  /*
+    client_id\n
+    command\n 
+    c,s,v 
+  */ 
+  char* token;
+  char* client_id_str;
+  char* command_name;
+  char* command_args;
+  int i = 0;
+  token = strtok(command_str, "\n");
+  while (token != NULL){
+    if (i == 0){
+      client_id_str = token;
+    }
+    if (i == 1){
+      command_name = token;
+    }
+    if (i == 2){
+      command_args = token;
+    }
+    token = strtok(NULL, "\n");
+    i++;
+  }
+}
+
+// parseBoardUpdate
+// take received update string, parse it, and apply update to the board tiles state
+void parseBoardUpdate(Board* board, char * received_str){
   printf("parsing input %s\n", received_str);
   char * publish_str = strdup(received_str);
   char * token;
   token = strtok(received_str, ",");
-  int x;
-  int y;
-  int colorNum;
+  int x = -1;
+  int y = -1;
+  int color_num = -1;
   int i = 0;
   while (token != NULL){
     if (i==0){
@@ -59,38 +210,42 @@ void parseBoardUpdate(char * received_str){
       y = atoi(token);
     }
     if (i==2){
-      colorNum = atoi(token);
+      color_num = atoi(token);
     }
     token = strtok(NULL, ",");
     i++;
   }
-  printf("setting %d, %d to %d\n", x, y, colorNum);
-  Rectangle* currRec = &board[x][y];
-  currRec->colorNum = colorNum;
+  printf("setting %d, %d to %d\n", x, y, color_num);
+  Tile* tile = &board->tiles[x][y];
+  tile->color_num = color_num;
   // board[y][x].colorNum = colorNum;
   //  SEND UPDATE TO DB
   //  send whole state for now - optimize this later
 
-  printf("setting updated board to redis\n");
+  //printf("setting updated board to redis\n");
   //char *board_str = boardToCSV(board);
   //redis_reply = redisCommand(redis_context, "SET board %s", board_str);
   char board_name[16];
   snprintf(board_name, 16, "row:%d", y);
-  redis_reply = redisCommand(redis_context, "LSET %s %d %d", board_name, x, colorNum);
-  if (redis_reply->type == REDIS_REPLY_ERROR){
-    printf("error %s\n", redis_reply->str);
-  }
-  freeReplyObject(redis_reply);
+  //redis_reply = redisCommand(redis_context, "LSET %s %d %d", board_name, x, color_num);
+  //if (redis_reply->type == REDIS_REPLY_ERROR){
+  //  printf("error %s\n", redis_reply->str);
+  //}
+  //freeReplyObject(redis_reply);
 
   // publish update to other subscribers
   zsock_send(publisher, "s", publish_str);
 }
 
 // different from server parseBoard - doesnt store exact X/Y/height/width
-void parseBoardCSV(char* boardCSV){
+void parseBoardCSV(Board* board, char* boardCSV){
   char* token;
   token = strtok(boardCSV, "\n");
-  char* lines[columns*rows];
+  char** lines = (char**)malloc(board->columns * board->rows * sizeof(char*)); //[columns*rows];
+  if  (lines == NULL){
+    fprintf(stderr, "error malloc in parseBoardCSV\n");
+    exit(1);
+  }
   int lineIdx = 0;
   while (token != NULL){
     lines[lineIdx] = token;
@@ -104,9 +259,9 @@ void parseBoardCSV(char* boardCSV){
     //int lineData[3];
     dataToken = strtok(line, ",");
     int dataIdx = 0;
-    int colorNum = 0;
-    int x;
-    int y;
+    int colorNum = -1;
+    int x = -1;
+    int y = -1;
     while (dataToken != NULL){
       switch(dataIdx){
         case 0: // x value
@@ -125,68 +280,74 @@ void parseBoardCSV(char* boardCSV){
     }
  //   Tile * lineTile = &board[x][y];
 
-    Rectangle *rect = &board[x][y];
-    rect->x =  x;
-    rect->y =  y;
-    rect->colorNum = colorNum;
+    Tile *tile = &board->tiles[x][y];
+    tile->x =  x;
+    tile->y =  y;
+    tile->color_num = colorNum;
   }
 }
 
-void getBoardState(){
+/*
+// getBoardState
+// retrieves the board state from redis if it exists, else initialize it with default values
+void getBoardState(Board* board){
   //redis_reply = redisCommand(redis_context, "EXISTS board");
 
-  redis_reply = redisCommand(redis_context, "EXISTS row:0");
-  int board_exists = redis_reply->integer;
-  freeReplyObject(redis_reply);
+  //redis_reply = redisCommand(redis_context, "EXISTS row:0");
+  //int board_exists = redis_reply->integer;
+  //freeReplyObject(redis_reply);
   if (board_exists != 1){
-  // board doesn't exist. generate it.
-    for (int i = 0; i < columns; i++) {
+    // board doesn't exist. generate it.
+    for (int i = 0; i < board->rows; i++) {
       char board_name[16];
       snprintf(board_name, 16, "row:%d", i);
-      for (int j = 0; j < rows; j++) {
-        Rectangle *rect = &board[j][i];
-        rect->x = j;
-        rect->y = i;
+      for (int j = 0; j < board->columns; j++) {
+        Tile *tile = getBoardTile(board, i, j); 
+        tile->x = j;
+        tile->y = i;
         int colorNum = rand() % 4;
-        rect->colorNum = colorNum;
+        tile->color_num = colorNum;
         redis_reply = redisCommand(redis_context, "RPUSH %s %d", board_name, colorNum);
         freeReplyObject(redis_reply);
       }
     }
     // set board to redis
     printf("setting generated board to redis\n");
-    char * board_str = boardToCSV(board);
-  //  redis_reply = redisCommand(redis_context, "SET board %s", board_str);
+    //  char * board_str = boardToCSV(board);
+    //  redis_reply = redisCommand(redis_context, "SET board %s", board_str);
   } else {
     // board exists. get it from redis.
-    printf("Get board from redis\n");
-  //  redis_reply = redisCommand(redis_context, "GET board");
-
-    for (int i = 0; i < columns; i++){
+    //  printf("Get board from redis\n");
+    //  redis_reply = redisCommand(redis_context, "GET board");
+    
+    for (int i = 0; i < board->rows; i++){
       char board_name[16];
       snprintf(board_name, 16, "row:%d", i);
-      for (int j = 0; j < rows; j++){
-
-        redis_reply = redisCommand(redis_context, "LINDEX %s %d", board_name, j);
-        if (redis_reply->type == REDIS_REPLY_STRING){
-          Rectangle *rect = &board[j][i];
-          rect->x = j;
-          rect->y = i;
-          rect->colorNum = atoi(redis_reply->str);
-        }
-        freeReplyObject(redis_reply);
+      for (int j = 0; j < board->columns; j++){
+        
+      //        redis_reply = redisCommand(redis_context, "LINDEX %s %d", board_name, j);
+      if (redis_reply->type == REDIS_REPLY_STRING){
+        Tile *rect = getBoardTile(board, i, j);  
+        rect->x = j;
+        rect->y = i;
+        rect->color_num = atoi(redis_reply->str);
       }
+      //  freeReplyObject(redis_reply);
     }
-   // char * board_str = redis_reply->str;
-    // populate global board variable
-   //parseBoardCSV(board_str);
   }
+  // char * board_str = redis_reply->str;
+  // populate global board variable
+  //parseBoardCSV(board_str);
 }
+}
+*/
 
 int main (void) {
-
+  Board board;
+  initBoard(&board);
   // Connect to Redis server
-  redis_context = redisConnect("127.0.0.1", 6379);
+  //redis_context = redisConnect("127.0.0.1", 6379);
+  /*
   if (redis_context == NULL || redis_context->err) {
     if (redis_context) {
       printf("Connection error: %s\n", redis_context->errstr);
@@ -199,20 +360,21 @@ int main (void) {
   redis_reply = redisCommand(redis_context, "PING %s", "hello world");
   printf("Response: %s\n", redis_reply->str);
   freeReplyObject(redis_reply);
+  */
   // Initialization of board
   //
   //--------------------------------------------------------------------------------------
-  getBoardState();
+  //getBoardState(&board);
   //char* boardCSV = boardToCSV(board);
   //size_t csv_size = strlen(boardCSV) * sizeof(char);
   //printf("%zu \n", csv_size);
   // exit program on ctrl-c
-  if (signal(SIGINT, handle_sigint) == SIG_ERR){
+  if (signal(SIGINT, handleSigint) == SIG_ERR){
     printf("error setting up signal handler \n");
     return 1;
   }
   
-  zsock_t *responder = zsock_new (ZMQ_REP);
+  responder = zsock_new (ZMQ_REP);
   int rc = zsock_bind(responder, "tcp://*:5555");
   assert (rc == 5555);
   printf("tcp listening on 5555 \n");
@@ -231,10 +393,16 @@ int main (void) {
 
       printf("received %s \n", received_str);
       if (strcmp(received_str, "fetch") == 0){
-        zstr_send(responder, boardToCSV(board));
+        zstr_send(responder, boardToCSV(&board));
       }else {
-        parseBoardUpdate(received_str);
-        zstr_send(responder, "updated board");
+        // PARSE COMMAND (update_cols, update_rows, update_tile)
+       /*
+       command\n 
+       client_id\n
+       c,s,v 
+       */
+        //parseBoardUpdate(&board, received_str);
+        zstr_send(responder, "received command");
       }
       // sleep(1);
       zstr_free(&received_str);
@@ -247,7 +415,7 @@ int main (void) {
   zsock_destroy(&responder);
   printf("server stopped gracefully\n");
 
-  redisFree(redis_context);
+  //redisFree(redis_context);
 
   return 0;
 }

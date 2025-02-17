@@ -6,22 +6,14 @@
             "command": "/usr/bin/gcc-14",
             "args": [
                 "-fdiagnostics-color=always",
-                //"-fanalyzer",
-                "-fsanitize=address",
                 "-g",
                 "${file}",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}",
-                "-lraylib",
-                "-lczmq",
-                "-lGL",
-                "-lm",
-                "-lpthread",
-                "-ldl",
-                "-lrt",
-                "-lX11",
-                "-I/usr/include/uuid", 
-                "-luuid"
+                "-lczmq", 
+                "-I", 
+                "/usr/local/include/hiredis", 
+                "-lhiredis"
             ],
             "options": {
                 "cwd": "${fileDirname}"

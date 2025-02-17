@@ -12,24 +12,31 @@
 #include <czmq_prelude.h>
 #include <zsock.h>
 #include <stdbool.h>
+#include <uuid/uuid.h>
 
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 
 // CONSTANT PROGRAM VARIABLES
 // ---------------------------
-const int SCREEN_WIDTH = 860;
-const int SCREEN_HEIGHT = 620;
-const int TILE_SIZE = 16;
-const int SELECTION_BTN_SIZE = 32;
-enum
-{
-    INIT_COLUMNS = 32, // width
-    INIT_ROWS = 32     // height
-}; // enum to enable array initialization
+#define INIT_COLUMNS 32
+#define INIT_ROWS 32
+#define SCREEN_WIDTH 860
+#define SCREEN_HEIGHT 620
+#define TILE_SIZE 16
+#define SELECTION_BTN_SIZE 32
+
 const int BOARD_WIDTH = TILE_SIZE * INIT_ROWS;
 const int BOARD_X = SCREEN_WIDTH / 2 - BOARD_WIDTH / 2;
 const int BOARD_Y = SCREEN_HEIGHT / 2 - BOARD_WIDTH / 2;
+
+// NETWORKING
+// ----------
+
+pthread_t sub_thread_id;
+pthread_t req_thread_id;
+zsock_t *subscriber;
+zsock_t *requester;
 
 // CUSTOM TYPEDEFS
 // ----------------
@@ -63,8 +70,16 @@ typedef struct
     // board height
     int rows;
     // 2d array of tiles
-    Tile** tiles;
+    Tile **tiles;
 } TileBoard;
+
+// freeTiles 
+void freeTiles(TileBoard* board){
+    for (int i = 0; i < board->rows; i++) {
+        free(board->tiles[i]);
+    }
+    free(board->tiles);
+}
 
 // initTileRectangle
 // call to init a raylib rectangle for each tile to help with rendering and collision detection
@@ -116,12 +131,22 @@ void initTileBoard(TileBoard *board)
     board->columns = INIT_COLUMNS;
     board->rows = INIT_ROWS;
     // allocate memory for 2d array of tiles
-    board->tiles = (Tile**)malloc(INIT_ROWS * sizeof(Tile*));
-    //for (int i = 0; i < INIT)
-    // allocate memory and initialize values
+    board->tiles = (Tile **)malloc(INIT_ROWS * sizeof(Tile *));
+    if (board->tiles == NULL)
+    {
+        fprintf(stderr, "error allocating tile rows array\n");
+        exit(1);
+    }
+    // for (int i = 0; i < INIT)
+    //  allocate memory and initialize values
     for (int i = 0; i < INIT_ROWS; i++)
     {
-        board->tiles[i] = (Tile*)malloc(INIT_COLUMNS * sizeof(Tile)); 
+        board->tiles[i] = (Tile *)malloc(INIT_COLUMNS * sizeof(Tile));
+        if (board->tiles[i] == NULL)
+        {
+            fprintf(stderr, "error allocating tile columns array\n");
+            exit(1);
+        }
         for (int j = 0; j < INIT_COLUMNS; j++)
         {
             Tile *board_tile = getBoardTile(board, i, j); // &board->tiles[i][j];
@@ -135,16 +160,19 @@ void initTileBoard(TileBoard *board)
 // take a new width and reallocate memory for it
 // initialize new values if new width is bigger than old width
 // updating board[][COLUMNS]
-void resizeBoardWidth(TileBoard* board, int new_width) {
+void resizeBoardWidth(TileBoard *board, int new_width)
+{
     int old_width = board->columns;
     board->columns = new_width;
 
-    // resize every row to new width 
-    for (int i = 0; i < board->rows; i++){
-        board->tiles[i] = (Tile*)realloc(board->tiles[i], new_width * sizeof(Tile));
+    // resize every row to new width
+    for (int i = 0; i < board->rows; i++)
+    {
+        board->tiles[i] = (Tile *)realloc(board->tiles[i], new_width * sizeof(Tile));
         // initialize data for new columns
-        for (int j = old_width; j < new_width; j++){
-            Tile* tile = getBoardTile(board, i, j);
+        for (int j = old_width; j < new_width; j++)
+        {
+            Tile *tile = getBoardTile(board, i, j);
             tile->color_num = BLACK_NUM;
             initTileRectangle(&tile->rect, i, j);
         }
@@ -154,23 +182,40 @@ void resizeBoardWidth(TileBoard* board, int new_width) {
 // resizeBoardHeight
 // take a new height and reallocate memory for it
 // initialize new values if new height is bigger than old height
-// pudating board[ROWS][]
-void resizeBoardHeight(TileBoard* board, int new_height) {
+// updating board[ROWS][]
+void resizeBoardHeight(TileBoard *board, int new_height)
+{
     int old_rows = board->rows;
     board->rows = new_height;
     // init memory for new rows
-    Tile** temp_realloc = (Tile**)realloc(board->tiles, new_height * sizeof(Tile*));
-    if (temp_realloc == NULL) {
+    Tile **temp_realloc = (Tile **)realloc(board->tiles, new_height * sizeof(Tile *));
+    if (temp_realloc == NULL)
+    {
         fprintf(stderr, "error realloc height/rows\n");
         exit(1);
     }
     board->tiles = temp_realloc;
 
     // initialize data for new rows
-    for (int i = old_rows; i < new_height; i++){
-        board->tiles[i] = (Tile*)malloc(board->columns * sizeof(Tile));
-        for (int j = 0; j < board->columns; j++){
-            Tile * tile = getBoardTile(board, i, j); // &board->tiles[i][j];
+    for (int i = old_rows; i < new_height; i++)
+    {
+        if (board->tiles[i] != NULL){
+            free(board->tiles[i]);
+        }
+       // free(board->tiles[i]);
+        
+        Tile* temp_malloc = (Tile *)malloc(board->columns * sizeof(Tile));
+        
+        if (temp_malloc == NULL)
+        {
+            fprintf(stderr, "error allocating tile columns array \n");
+            exit(1);
+        }
+        board->tiles[i] = temp_malloc;
+        
+        for (int j = 0; j < board->columns; j++)
+        {
+            Tile *tile = getBoardTile(board, i, j); // &board->tiles[i][j];
             tile->color_num = BLACK_NUM;
             initTileRectangle(&tile->rect, i, j);
         }
@@ -240,35 +285,181 @@ bool checkInBoundary()
 // validateDimensionInput
 // takes the string input of a text box and returns true if its one or two digits and only positive numbers
 // false otherwise
-bool validateDimensionInput(char* inputText){
-  int length = strlen(inputText);
-  if (length > 2){
-    // must be no more than 2 digits
-    return false;
-  }
-  for (int i = 0; i < length; i++){
-    if (!isdigit(inputText[i])){
-      // only digits allowed
-      return false;
+bool validateDimensionInput(char *inputText)
+{
+    int length = strlen(inputText);
+    if (length > 2)
+    {
+        // must be no more than 2 digits
+        return false;
     }
-  }
-  return true;
+    for (int i = 0; i < length; i++)
+    {
+        if (!isdigit(inputText[i]))
+        {
+            // only digits allowed
+            return false;
+        }
+    }
+    return true;
 }
 
+// parseBoardCSV - input: string
+// takes the server response and populates the tile board
+// not an actual csv because the first line is missing
+// we assume to know what the rows will be
+void parseBoardCSV(TileBoard *board, char *boardCSV)
+{
+
+    /*
+    rows,columns\n
+    board,c,s,v
+    */
+    // extract the first line with the dimensions
+    char *token;
+    char* rest_board = boardCSV;
+   // char *dimensions_str;
+    int server_columns = -1;
+    int server_rows = -1;
+    token = strtok_r(rest_board, "\n", &rest_board);
+    char* dimensions_str = token;
+    printf("dimension str %s\n", dimensions_str);
+    char* rest_dimensions = dimensions_str;
+    token = strtok_r(rest_dimensions, ",", &rest_dimensions);
+    server_rows = atoi(token);
+    printf("token %s\n", token);
+    token = strtok_r(rest_dimensions, ",", &rest_dimensions);
+    server_columns = atoi(token);
+    printf("token %s\n", token);
+  //  if (dimensions_token == NULL)
+    //{
+    //    fprintf(stderr, "failed to parse board dimensions from fetch\n");
+    //    exit(1);
+    //}
+    //server_rows = atoi(dimensions_token);
+    
+    
+    // check if different and resize actually!
+    if (server_rows != board->rows){
+        resizeBoardHeight(board, server_rows);
+    }
+    if (server_columns != board->columns){
+        resizeBoardWidth(board, server_columns);
+    }
+    board->rows = server_rows;
+    board->columns = server_columns;
+    // -----
+    
+    //line_token = strtok(boardCSV, "\n");
+    
+    //printf("line token: %s\n", line_token);
+    //line_token = strtok(NULL, "\n");
+    // printf("%s\n", boardCSV);
+    //line_token = strtok(NULL, "\n");
+    token = strtok_r(rest_board, "\n", &rest_board);
+    char *lines[server_columns * server_rows];
+    int lineIdx = 0;
+    while (token != NULL)
+    {
+        lines[lineIdx] = token;
+        token = strtok_r(rest_board, "\n", &rest_board);
+        lineIdx++;
+    }
+    for (int i = 0; i < lineIdx; i++)
+    {
+        char *line = lines[i];
+        // printf("%s\n", line);
+        char *dataToken;
+        // int lineData[3];
+        dataToken = strtok(line, ",");
+        int dataIdx = 0;
+        int colorNum = 0;
+        int x = 0;
+        int y = 0;
+        while (dataToken != NULL)
+        {
+            switch (dataIdx)
+            {
+                case 0: // x value
+                x = atoi(dataToken);
+                break;
+                case 1: // y value
+                y = atoi(dataToken);
+                break;
+                case 2: // colorNum
+                colorNum = atoi(dataToken);
+                break;
+            }
+            //  lineData[dataIdx] = atoi(dataToken);
+            dataToken = strtok(NULL, ",");
+            dataIdx++;
+        }
+        Tile *lineTile = getBoardTile(board, y, x);  //&board->tiles[x][y];
+        
+        Rectangle *rect = &(*lineTile).rect;
+        rect->x = BOARD_X + x * TILE_SIZE;
+        rect->y = BOARD_Y + y * TILE_SIZE;
+        rect->width = TILE_SIZE;
+        rect->height = TILE_SIZE;
+        lineTile->color_num = colorNum;
+    }
+    
+    
+    // free(dimensions_str);
+}
+
+void sendReq(TileBoard* board, char *req_str)
+{
+
+    printf("sending command %s \n", req_str);
+
+    zstr_send(requester, req_str);
+    // sleep(1);
+    char *str = zstr_recv(requester);
+    // printf("received response for %s \n", command);
+    // printf("%s \n", str);
+    if (strcmp(req_str, "fetch") == 0)
+    {
+        parseBoardCSV(board, str);
+    }
+    zstr_free(&str);
+}
+
+// updateSubThread
+void *updateSubThread(void *arg)
+{
+    return NULL;
+}
 
 int main(void)
 {
+    // create a client ID
+    uuid_t binuuid;
+    char uuid[37];
+    uuid_generate_random(binuuid);
+    uuid_unparse(binuuid, uuid);
+
+    // connect zeromq
+
+    requester = zsock_new(ZMQ_REQ);
+    zsock_connect(requester, "tcp://localhost:5555");
+    // subscriber = zsock_new_sub("tcp://localhost:5556", "");
+
+    // pthread_create(&sub_thread_id, NULL, updateSubThread, NULL);
+    
+    
     // initialize our game state
-    SetTargetFPS(60);
     TileBoard board;
     initTileBoard(&board);
+    sendReq(&board, "fetch");
+    SetTargetFPS(60);
     // init camera
     Camera2D camera = {0};
     camera.target = (Vector2){BOARD_X + 16 * TILE_SIZE, BOARD_Y + 16 * TILE_SIZE};
     camera.offset = (Vector2){BOARD_X + BOARD_WIDTH / 2.0f, BOARD_Y + BOARD_WIDTH / 2.0f};
     camera.rotation = 0.0f;
     camera.zoom = 1.0f;
-
+    
     // init selection tile rectangles
     Tile selectionTiles[5];
     for (int i = 0; i < 5; i++)
@@ -422,4 +613,9 @@ int main(void)
         }
         EndDrawing();
     }
+    printf("goodbye\n");
+    freeTiles(&board);
+    zsock_destroy(&requester);
+    CloseWindow();
+    return 0;
 }
